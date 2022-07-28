@@ -293,6 +293,7 @@ public class DatabaseQuerier
                                                                                         pRTData.topText, pRTData.topTextColor,
                                                                                         pRTData.bottomText, pRTData.bottomTextColor,
                                                                                         pRTData.texturePath);
+          MinecraftLayer.getInstance().getHologramManager().playSoundAroundPlayer(player, 32, pRTData.soundPath);
         });
       }
       catch (IOException e)

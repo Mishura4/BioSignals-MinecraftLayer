@@ -40,6 +40,7 @@ public class EventListener implements Listener
   public void onQuit(PlayerQuitEvent e)
   {
     this.databaseQuerier.removePlayer(e.getPlayer().getUniqueId());
+    this.hologramManager.removePlayer(e.getPlayer());
   }
 
   @EventHandler

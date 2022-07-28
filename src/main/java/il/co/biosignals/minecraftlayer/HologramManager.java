@@ -3,6 +3,8 @@ package il.co.biosignals.minecraftlayer;
 import eu.decentsoftware.holograms.api.DHAPI;
 import eu.decentsoftware.holograms.api.holograms.Hologram;
 import org.bukkit.Location;
+import org.bukkit.SoundCategory;
+import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
@@ -89,7 +91,49 @@ public class HologramManager
      */
   }
 
+  /*
+    See this for volume : https://bukkit.org/threads/playsound-parameters-volume-and-pitch.151517/
+
+    > I couldn't find exact information on playSound() so I had a look:
+
+    > The volume of a sound source is determined by the volume parameter limited to the range 0.0 to 1.0. The volume of the sound as heard by the player is the volume of the sound multiplied by 1 minus the distance between the player and the source divided by the rolloff distance, multiplied by the player's sound volume setting. The rolloff distance is the greater of 16 and 16 times the volume. In code:
+
+    > Code:
+    > sourceVolume = max(0.0, min(volume, 1.0));
+    > rolloffDistance = max(16, 16 * volume);
+    > distance = player.getLocation().distance(location);
+
+    > volumeOfSoundAtPlayer = sourceVolume * ( 1 - distance / rolloffDistance ) * PlayersSoundVolumeSetting;
+
+    > This means that 1.0 is the loudest a sound can possibly be. Setting it higher increases the distance from which the sound can be heard. For example, sounds with volumes of 1.0 and 10.0 are just as loud at their sources, but the one with a volume of 1.0 can barely be heard 15 blocks away, while the other can still be heard 150 blocks away.
+  */
+  public void playSoundAroundPlayer(Player player, double radius, String resourcePath)
+  {
+    World world = player.getWorld();
+    List<Player> playerList = world.getPlayers();
+    double radiusSq = radius * radius;
+
+    playerList.forEach((Player p) -> {
+      if (p.getLocation().distanceSquared(player.getLocation()) < radiusSq)
+        p.playSound(player.getLocation(), resourcePath, SoundCategory.PLAYERS, (float)radius / 16, 1.0f);
+    });
+  }
+
+  public void removePlayer(Player p)
+  {
+    Hologram hologram = this.holograms.remove(p);
+
+    if (hologram == null)
+      return;
+
+    hologram.delete();
+  }
+
   public void clear()
   {
+    this.holograms.forEach((Player p, Hologram h) ->
+     {
+       h.delete();
+     });
   }
 }
