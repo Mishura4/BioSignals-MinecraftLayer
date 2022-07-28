@@ -2,9 +2,6 @@ package il.co.biosignals.minecraftlayer;
 
 import eu.decentsoftware.holograms.api.DHAPI;
 import eu.decentsoftware.holograms.api.holograms.Hologram;
-import eu.decentsoftware.holograms.api.holograms.HologramLine;
-import net.craftcitizen.imagemaps.ImageMapDownloadCommand;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
@@ -15,6 +12,8 @@ public class HologramManager
 {
   private final JavaPlugin plugin;
 
+  private Map<String, Integer> customModelDataMap = new HashMap<>();
+
   Map<Player, Hologram> holograms;
 
   HologramManager(JavaPlugin _plugin)
@@ -23,11 +22,16 @@ public class HologramManager
     this.holograms = new HashMap<>();
   }
 
+  public void loadCustomModelDataMap(Map<String, Integer> map)
+  {
+    this.customModelDataMap = map;
+  }
+
   public Location getLocationForPlayer(Player player)
   {
     Location ret = player.getLocation();
 
-    ret.setY(ret.getY() + 3.00);
+    ret.setY(ret.getY() + 3.25);
     return (ret);
   }
 
@@ -54,8 +58,18 @@ public class HologramManager
       _hologram = DHAPI.createHologram(player.getName(), getLocationForPlayer(player), false, Arrays.asList("", "", ""));
       this.holograms.put(player, _hologram);
     }
-    DHAPI.setHologramLine(_hologram,0, 
-                          "#ICON: PLAYER_HEAD (" + Base64.getEncoder().encodeToString(new String("{\"textures\":{\"SKIN\":{\"url\":\"https://www.perspective.org.il/BFA/Pictures/no_signals.jpg\"}}}").getBytes()) + ")");
+
+    imageURL = "test_item";
+    int modelId = customModelDataMap.getOrDefault(imageURL, 0);
+
+    if (modelId == 0)
+    {
+      MinecraftLayer.getInstance().getLogger().warning("Could not find a model ID for name " + imageURL + " ; defaulting to model ID 1");
+      MinecraftLayer.getInstance().getLogger().warning("Make sure the item is registered in the configuration file at " + MinecraftLayer.getInstance().getDataFolder() + "/config.json");
+      modelId = 1;
+    }
+
+    DHAPI.setHologramLine(_hologram,0, "#ICON: SHULKER_SHELL{CustomModelData:" + modelId + "}");
     DHAPI.setHologramLine(_hologram, 1, getColoredText(topText, topTextColor));
     DHAPI.setHologramLine(_hologram, 2, getColoredText(bottomText, bottomTextColor));
   }

@@ -32,13 +32,6 @@ repositories {
     // mavenLocal() // This is needed for CraftBukkit and Spigot.
 
     maven { url 'https://jitpack.io' } // DecentHolograms
-    maven {
-        url = uri("https://maven.pkg.github.com/SydMontague/ImageMaps")
-        credentials {
-            username = project.findProperty("gpr.user") ?: System.getenv("USERNAME")
-            password = project.findProperty("gpr.key") ?: System.getenv("TOKEN")
-        } //ImageMaps
-    }
 }
 
 dependencies {
@@ -46,9 +39,6 @@ dependencies {
    // compileOnly 'org.spigotmc:spigot:1.19-R0.1-SNAPSHOT' // The full Spigot server with no shadowing. Requires mavenLocal.
 
     compileOnly 'com.github.decentsoftware-eu:decentholograms:2.5.2'
-    //compileOnly 'com.github.sydmontague:imagemaps:master-SNAPSHOT'
-    //https://github.com/josemmo/yamipa/blob/main/src/main/java/io/josemmo/bukkit/plugin/commands/ImageCommand.java
-    compileOnly 'net.craftcitizen:imagemaps:1.0.10'
     implementation 'org.apache.httpcomponents:httpclient:4.5.13'
 
     testImplementation 'org.junit.jupiter:junit-jupiter-api:5.7.0'

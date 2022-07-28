@@ -43,6 +43,7 @@ public class DatabaseQuerier
     public final int userNumber;
     public final String realTimeProcedureName;
     public final long realTimeTimer;
+
     public final RealTimeDataFetcher dataFetcher;
 
     protected PlayerData(UUID _uuid, String _firstName, String _lastName, int _userNumber,
