@@ -7,9 +7,8 @@ import org.bukkit.plugin.java.JavaPlugin;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileReader;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
+import java.text.NumberFormat;
+import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -53,15 +52,9 @@ public class MinecraftLayer extends JavaPlugin
     return (INSTANCE);
   }
 
-  public void loadConfig()
+  private void parseConfig()
   {
     Gson gson = new GsonBuilder().setPrettyPrinting().create();
-
-    this.configFile = new File(getDataFolder(),
-                               "config.json");
-
-    if (!this.configFile.exists())
-      saveResource(this.configFile.getName(), false);
 
     try
     {
@@ -69,7 +62,27 @@ public class MinecraftLayer extends JavaPlugin
     }
     catch (FileNotFoundException e) // this should never happen but it's java so we have to do this i guess
     {
+      e.printStackTrace();
     }
+  }
+
+  public void loadConfig()
+  {
+    this.configFile = new File(getDataFolder(),
+                               "config.json");
+
+    if (!this.configFile.exists())
+      saveResource(this.configFile.getName(), false);
+    parseConfig();
+    if (!this.configValues.getOrDefault("config_version", "").toString().contentEquals("1"))
+    {
+      this.getLogger().warning("Wrong config file version detected, resetting.");
+      this.configFile.renameTo(new File(this.configFile.getName() + ".backup"));
+      saveResource(this.configFile.getName(), true);
+      parseConfig();
+    }
+
+    this.hologramManager.setItemOverride(this.configValues.getOrDefault("material_override", "BARRIER").toString());
 
     loadCustomModelDataMap();
   }
@@ -89,12 +102,24 @@ public class MinecraftLayer extends JavaPlugin
     HashMap<String, Integer> customModelDataMap = new HashMap<>(rawCustomModelDataMap.size());
 
     rawCustomModelDataMap.forEach((Object key, Object value) -> {
-      int modelId = Integer.parseInt(key.toString());
+      int modelId = 0;
+
+      try
+      {
+        modelId = NumberFormat.getInstance().parse(value.toString()).intValue();
+      }
+      catch (ParseException e)
+      {
+        MinecraftLayer.getInstance().getLogger().warning("Ill-formed config.json : ");
+        e.printStackTrace();
+        return;
+      }
 
       if (modelId == 0)
         return;
 
-      customModelDataMap.put(value.toString(), modelId);
+      MinecraftLayer.getInstance().getLogger().info("Registered custom model " + key.toString() + " => " + modelId);
+      customModelDataMap.put(key.toString(), modelId);
     });
 
     this.hologramManager.loadCustomModelDataMap(customModelDataMap);
@@ -103,6 +128,7 @@ public class MinecraftLayer extends JavaPlugin
   @Override
   public void onEnable() {
     getServer().getPluginManager().registerEvents(this.eventListener, this);
+    getCommand("biosignals").setExecutor(new BiosignalsCommand());
     loadConfig();
   }
 

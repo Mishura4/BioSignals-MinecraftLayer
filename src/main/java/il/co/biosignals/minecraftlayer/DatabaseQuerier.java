@@ -35,6 +35,8 @@ public class DatabaseQuerier
 
   private Map<UUID, PlayerData> playerDataMap;
 
+  public int testState = 0;
+
   public class PlayerData
   {
     public final UUID uuid;
@@ -45,6 +47,8 @@ public class DatabaseQuerier
     public final long realTimeTimer;
 
     public final RealTimeDataFetcher dataFetcher;
+    public PlayerRealTimeData oldData;
+    public PlayerRealTimeData newData;
 
     protected PlayerData(UUID _uuid, String _firstName, String _lastName, int _userNumber,
                          String _realTimeProcedureName, int _realTimeTimer)
@@ -56,6 +60,7 @@ public class DatabaseQuerier
       this.realTimeProcedureName = _realTimeProcedureName;
       this.realTimeTimer = _realTimeTimer;
       this.dataFetcher = new RealTimeDataFetcher(this);
+      this.newData = new PlayerRealTimeData("", "", "", "", "", "");
     }
 
     @Override
@@ -149,10 +154,7 @@ public class DatabaseQuerier
                                       playerUUID.toString().replace("-", "")));
     httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
 
-    this.plugin.getLogger().info(httpPost.toString());
     Arrays.stream(httpPost.getAllHeaders()).toList().forEach((Header header) -> {this.plugin.getLogger().info(header.toString());});
-
-    this.plugin.getLogger().info(EntityUtils.toString(httpPost.getEntity()));
 
     HttpResponse httpResponse = httpClient.execute(httpPost);
     HttpEntity hentity = httpResponse.getEntity();
@@ -163,18 +165,6 @@ public class DatabaseQuerier
       this.plugin.getLogger().warning(httpResponse.getStatusLine().toString());
       return (null);
     }
-
-    /*
-    [
-      {
-        "first_name":"????? ??",
-        "family_name":"?? ????? ???????",
-        "user_number":1,
-        "real_time_procedure_name":"Get_minecraft_real_time_data",
-        "real_time_timer":1
-      }
-     ]
-     */
 
     String response = EntityUtils.toString(hentity);
     JsonElement jsonRoot = JsonParser.parseString(response);
@@ -248,12 +238,12 @@ public class DatabaseQuerier
     JsonObject jsonData = jsonRoot.getAsJsonObject();
 
     PlayerRealTimeData pRTData = new PlayerRealTimeData(
-            jsonData.get("top_text").getAsString(),
-            jsonData.get("top_text_color").getAsString(),
-            jsonData.get("bottom_text").getAsString(),
-            jsonData.get("bottom_text_color").getAsString(),
-            jsonData.get("picture_url").getAsString(),
-            jsonData.get("audio_url").getAsString()
+            ((this.testState & 0x1) != 0 ? "" : jsonData.get("top_text").getAsString()),
+            ((this.testState & 0x2) != 0 ? "" : jsonData.get("top_text_color").getAsString()),
+            ((this.testState & 0x4) != 0 ? "" : jsonData.get("bottom_text").getAsString()),
+            ((this.testState & 0x8) != 0 ? "" : jsonData.get("bottom_text_color").getAsString()),
+            ((this.testState & 0x10) != 0 ? "" : jsonData.get("picture_url").getAsString()),
+            ((this.testState & 0x20) != 0 ? "" : jsonData.get("audio_url").getAsString())
     );
 
     return (pRTData);
@@ -274,11 +264,11 @@ public class DatabaseQuerier
 
       DatabaseQuerier.PlayerRealTimeData pRTData;
 
-
-
       try
       {
-        pRTData = MinecraftLayer.getInstance().getDatabaseQuerier().queryPlayerRealTimeData(playerData.uuid);
+        this.playerData.oldData = this.playerData.newData;
+        pRTData = MinecraftLayer.getInstance().getDatabaseQuerier().queryPlayerRealTimeData(this.playerData.uuid);
+        this.playerData.newData = pRTData;
 
         if (this.isCancelled()) // We need to check for this in case the query started BEFORE we cancelled but finished AFTER
         {
@@ -289,11 +279,10 @@ public class DatabaseQuerier
         this.task = scheduler.runTask(MinecraftLayer.getInstance(), () -> {
           Player player = Bukkit.getPlayer(this.playerData.uuid);
 
-          MinecraftLayer.getInstance().getHologramManager().updateHologramDataForPlayer(player,
-                                                                                        pRTData.topText, pRTData.topTextColor,
-                                                                                        pRTData.bottomText, pRTData.bottomTextColor,
-                                                                                        pRTData.texturePath);
-          MinecraftLayer.getInstance().getHologramManager().playSoundAroundPlayer(player, 32, pRTData.soundPath);
+          MinecraftLayer.getInstance().getHologramManager().updateHologramDataForPlayer(player, this.playerData);
+
+          if (!this.playerData.newData.soundPath.contentEquals(this.playerData.oldData.soundPath))
+            MinecraftLayer.getInstance().getHologramManager().playSoundAroundPlayer(player, 32, pRTData.soundPath);
         });
       }
       catch (IOException e)

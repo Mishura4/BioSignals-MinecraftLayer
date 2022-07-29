@@ -5,6 +5,8 @@ plugins {
 group 'il.co.biosignals'
 version '1.0-SNAPSHOT'
 
+setArchivesBaseName("BioSignals-MinecraftLayer")
+
 repositories {
     mavenCentral()
 

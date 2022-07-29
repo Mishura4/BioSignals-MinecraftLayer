@@ -1,5 +1,10 @@
-name: MinecraftLayer
+name: BioSignals-MinecraftLayer
 version: 1.0-SNAPSHOT
 main: il.co.biosignals.minecraftlayer.MinecraftLayer
 api-version: 1.19
 depend: [DecentHolograms]
+commands:
+  biosignals:
+    description: The main command for biosignals.
+    usage: /<command>
+    permission: biosignals.biosignals_command

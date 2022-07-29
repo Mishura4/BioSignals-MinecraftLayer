@@ -2,6 +2,7 @@ package il.co.biosignals.minecraftlayer;
 
 import eu.decentsoftware.holograms.api.DHAPI;
 import eu.decentsoftware.holograms.api.holograms.Hologram;
+import eu.decentsoftware.holograms.api.holograms.HologramLine;
 import org.bukkit.Location;
 import org.bukkit.SoundCategory;
 import org.bukkit.World;
@@ -13,6 +14,7 @@ import java.util.*;
 public class HologramManager
 {
   private final JavaPlugin plugin;
+  private String itemOverride;
 
   private Map<String, Integer> customModelDataMap = new HashMap<>();
 
@@ -24,6 +26,11 @@ public class HologramManager
     this.holograms = new HashMap<>();
   }
 
+  public void setItemOverride(String string)
+  {
+    this.itemOverride = string;
+  }
+
   public void loadCustomModelDataMap(Map<String, Integer> map)
   {
     this.customModelDataMap = map;
@@ -33,21 +40,21 @@ public class HologramManager
   {
     Location ret = player.getLocation();
 
-    ret.setY(ret.getY() + 3.25);
+    ret.setY(ret.getY() + 2.25);
     return (ret);
   }
 
   public String getColoredText(String text, String color)
   {
+    if (color.isEmpty())
+      return (text);
     return ("<" + color + ">" + text + "</" + color + ">");
   }
 
-  public void updateHologramDataForPlayer(Player player,
-                                          String topText, String topTextColor,
-                                          String bottomText, String bottomTextColor,
-                                          String imageURL)
+  public void updateHologramDataForPlayer(Player player, DatabaseQuerier.PlayerData playerData)
   {
     Hologram _hologram = this.holograms.get(player);
+    List<String> lines = new LinkedList<>();
 
     if (_hologram == null)
     {
@@ -57,28 +64,45 @@ public class HologramManager
         DHAPI.removeHologram(player.getName());
       // ---
 
-      _hologram = DHAPI.createHologram(player.getName(), getLocationForPlayer(player), false, Arrays.asList("", "", ""));
+      _hologram = DHAPI.createHologram(player.getName(), getLocationForPlayer(player), false);
+      _hologram.setDownOrigin(true);
       this.holograms.put(player, _hologram);
     }
 
-    imageURL = "test_item";
-    int modelId = customModelDataMap.getOrDefault(imageURL, 0);
-
-    if (modelId == 0)
+    if(!playerData.newData.texturePath.isEmpty())
     {
-      MinecraftLayer.getInstance().getLogger().warning("Could not find a model ID for name " + imageURL + " ; defaulting to model ID 1");
-      MinecraftLayer.getInstance().getLogger().warning("Make sure the item is registered in the configuration file at " + MinecraftLayer.getInstance().getDataFolder() + "/config.json");
-      modelId = 1;
+      int modelId = customModelDataMap.getOrDefault(playerData.newData.texturePath, 0);
+
+      if (modelId == 0)
+      {
+        MinecraftLayer.getInstance()
+                      .getLogger()
+                      .warning("Could not find a model ID for name " + playerData.newData.texturePath +
+                               " ; defaulting to model ID 1");
+        MinecraftLayer.getInstance()
+                      .getLogger()
+                      .warning(
+                              "Make sure the item is registered in the configuration file at " +
+                              MinecraftLayer.getInstance().getDataFolder() +
+                              "/config.json");
+        modelId = 1;
+
+        lines.add("#ICON: " + this.itemOverride + "{CustomModelData:" + modelId + "}");
+      }
     }
 
-    DHAPI.setHologramLine(_hologram,0, "#ICON: SHULKER_SHELL{CustomModelData:" + modelId + "}");
-    DHAPI.setHologramLine(_hologram, 1, getColoredText(topText, topTextColor));
-    DHAPI.setHologramLine(_hologram, 2, getColoredText(bottomText, bottomTextColor));
+    if (!playerData.newData.topText.isEmpty())
+      lines.add(getColoredText(playerData.newData.topText, playerData.newData.topTextColor));
+
+    if (!playerData.newData.bottomText.isEmpty())
+      lines.add(getColoredText(playerData.newData.bottomText, playerData.newData.bottomTextColor));
+
+    DHAPI.setHologramLines(_hologram, lines);
   }
 
-    public void updateHologramLocationForPlayer(Player player)
-    {
-      Hologram _hologram = this.holograms.get(player);
+  public void updateHologramLocationForPlayer(Player player)
+  {
+    Hologram _hologram = this.holograms.get(player);
 
     if (_hologram == null) // We have not received data yet, nothing to display
       return;

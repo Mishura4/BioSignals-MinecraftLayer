@@ -1,5 +1,7 @@
 {
+    "config_version": 1,
+    "material_override": "BARRIER",
     "custom_model_data_map": {
-        "test_item": 1
+        "error": 1
     }
 }

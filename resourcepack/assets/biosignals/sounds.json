@@ -1,0 +1,12 @@
+{
+    "entity.player.realtimeupdate.test" :
+    {
+        "replace": "false",
+        "sounds": [
+            {
+                "name": "biosignals:player/realtimeupdate/test",
+                "volume": 1.0
+            }
+        ]
+    }
+}
