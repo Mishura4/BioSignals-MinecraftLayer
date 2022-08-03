@@ -1,6 +1,9 @@
 {
-    "config_version": 1,
+    "config_version": 2,
+    "database_server_url": "http://www.il-cn.com/BFA/Data/DBInterface.ashx",
     "material_override": "BARRIER",
+    "top_offset": 2.1,
+    "bottom_offset": -0.25,
     "custom_model_data_map": {
         "error": 1
     }

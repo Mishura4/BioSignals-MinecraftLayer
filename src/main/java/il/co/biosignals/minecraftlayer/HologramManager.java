@@ -1,5 +1,6 @@
 package il.co.biosignals.minecraftlayer;
 
+import com.google.gson.JsonObject;
 import eu.decentsoftware.holograms.api.DHAPI;
 import eu.decentsoftware.holograms.api.holograms.Hologram;
 import eu.decentsoftware.holograms.api.holograms.HologramLine;
@@ -10,15 +11,25 @@ import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class HologramManager
 {
   private final JavaPlugin plugin;
+
   private String itemOverride;
+  private double topOffset;
+  private double bottomOffset;
 
   private Map<String, Integer> customModelDataMap = new HashMap<>();
 
-  Map<Player, Hologram> holograms;
+  private class HologramData
+  {
+    private Hologram topHologram;
+    private Hologram bottomHologram;
+  }
+
+  Map<Player, HologramData> holograms;
 
   HologramManager(JavaPlugin _plugin)
   {
@@ -36,11 +47,29 @@ public class HologramManager
     this.customModelDataMap = map;
   }
 
-  public Location getLocationForPlayer(Player player)
+  public void setTopOffset(double _topOffset)
+  {
+    this.topOffset = _topOffset;
+  }
+
+  public void setBottomOffset(double _bottomOffset)
+  {
+    this.bottomOffset = _bottomOffset;
+  }
+
+  public Location getTopLocationForPlayer(Player player)
   {
     Location ret = player.getLocation();
 
-    ret.setY(ret.getY() + 2.25);
+    ret.setY(ret.getY() + topOffset);
+    return (ret);
+  }
+
+  public Location getBottomLocationForPlayer(Player player)
+  {
+    Location ret = player.getLocation();
+
+    ret.setY(ret.getY() + bottomOffset);
     return (ret);
   }
 
@@ -53,20 +82,23 @@ public class HologramManager
 
   public void updateHologramDataForPlayer(Player player, DatabaseQuerier.PlayerData playerData)
   {
-    Hologram _hologram = this.holograms.get(player);
-    List<String> lines = new LinkedList<>();
+    HologramData hologramData = this.holograms.get(player);
+    List<String> topLines = new LinkedList<>();
+    List<String> bottomLines = new LinkedList<>();
 
-    if (_hologram == null)
-    {
+    if (hologramData == null)
+    {/*
       // --- TODO : find out why holograms are saved, and why we need to check if they exist when someone logs in
-      _hologram = DHAPI.getHologram(player.getName());
-      if (_hologram != null)
+      hologramData = DHAPI.getHologram(player.getName());
+      if (hologramData != null)
         DHAPI.removeHologram(player.getName());
-      // ---
+      // ---*/
 
-      _hologram = DHAPI.createHologram(player.getName(), getLocationForPlayer(player), false);
-      _hologram.setDownOrigin(true);
-      this.holograms.put(player, _hologram);
+      hologramData = new HologramData();
+      hologramData.topHologram = DHAPI.createHologram(player.getName() + "_top", getTopLocationForPlayer(player), false);
+      hologramData.topHologram.setDownOrigin(true);
+      hologramData.bottomHologram = DHAPI.createHologram(player.getName() + "_bottom", getBottomLocationForPlayer(player), false);
+      this.holograms.put(player, hologramData);
     }
 
     if(!playerData.newData.texturePath.isEmpty())
@@ -75,39 +107,45 @@ public class HologramManager
 
       if (modelId == 0)
       {
-        MinecraftLayer.getInstance()
-                      .getLogger()
-                      .warning("Could not find a model ID for name " + playerData.newData.texturePath +
-                               " ; defaulting to model ID 1");
-        MinecraftLayer.getInstance()
-                      .getLogger()
-                      .warning(
-                              "Make sure the item is registered in the configuration file at " +
-                              MinecraftLayer.getInstance().getDataFolder() +
-                              "/config.json");
+        if (!playerData.newData.texturePath.contentEquals(playerData.oldData.texturePath))
+        {
+          MinecraftLayer.getInstance()
+                        .getLogger()
+                        .warning("Could not find a model ID for name " +
+                                 playerData.newData.texturePath +
+                                 " ; defaulting to model ID 1");
+          MinecraftLayer.getInstance()
+                        .getLogger()
+                        .warning(
+                                "Make sure the item is registered in the configuration file at " +
+                                MinecraftLayer.getInstance().getDataFolder() +
+                                "/config.json");
+        }
         modelId = 1;
-
-        lines.add("#ICON: " + this.itemOverride + "{CustomModelData:" + modelId + "}");
       }
+
+      topLines.add("#ICON: " + this.itemOverride + "{CustomModelData:" + modelId + "}");
     }
 
     if (!playerData.newData.topText.isEmpty())
-      lines.add(getColoredText(playerData.newData.topText, playerData.newData.topTextColor));
+      topLines.add(getColoredText(playerData.newData.topText, playerData.newData.topTextColor));
 
     if (!playerData.newData.bottomText.isEmpty())
-      lines.add(getColoredText(playerData.newData.bottomText, playerData.newData.bottomTextColor));
+      bottomLines.add(getColoredText(playerData.newData.bottomText, playerData.newData.bottomTextColor));
 
-    DHAPI.setHologramLines(_hologram, lines);
+    DHAPI.setHologramLines(hologramData.topHologram, topLines);
+    DHAPI.setHologramLines(hologramData.bottomHologram, bottomLines);
   }
 
   public void updateHologramLocationForPlayer(Player player)
   {
-    Hologram _hologram = this.holograms.get(player);
+    HologramData _hologram = this.holograms.get(player);
 
     if (_hologram == null) // We have not received data yet, nothing to display
       return;
 
-    DHAPI.moveHologram(_hologram, getLocationForPlayer(player));
+    DHAPI.moveHologram(_hologram.topHologram, getTopLocationForPlayer(player));
+    DHAPI.moveHologram(_hologram.bottomHologram, getBottomLocationForPlayer(player));
 
     /* TODO: fix this? why doesnt it work but the code above does??
     _hologram.setLocation(getLocationForPlayer(player));
@@ -145,19 +183,35 @@ public class HologramManager
 
   public void removePlayer(Player p)
   {
-    Hologram hologram = this.holograms.remove(p);
+    HologramData hologram = this.holograms.remove(p);
 
     if (hologram == null)
       return;
 
-    hologram.delete();
+    hologram.topHologram.delete();
+    hologram.bottomHologram.delete();
   }
 
   public void clear()
   {
-    this.holograms.forEach((Player p, Hologram h) ->
+    this.holograms.forEach((Player p, HologramData h) ->
      {
-       h.delete();
+       h.topHologram.delete();
+       h.bottomHologram.delete();
      });
+  }
+
+  public void saveConfigToJson(JsonObject object)
+  {
+    object.addProperty("material_override", this.itemOverride);
+    object.addProperty("top_offset", this.topOffset);
+    object.addProperty("bottom_offset", this.bottomOffset);
+
+    JsonObject modelDataMapObject = new JsonObject();
+    List<Map.Entry<String, Integer>> entries = this.customModelDataMap.entrySet().stream()
+                                                       .sorted(Comparator.comparing(Map.Entry::getValue))
+                                                       .collect(Collectors.toList());
+    entries.forEach((tuple) -> modelDataMapObject.addProperty(tuple.getKey(), tuple.getValue()));
+    object.add("custom_model_data_map", modelDataMapObject);
   }
 }

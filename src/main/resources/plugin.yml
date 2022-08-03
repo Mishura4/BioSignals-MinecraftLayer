@@ -8,3 +8,8 @@ commands:
     description: The main command for biosignals.
     usage: /<command>
     permission: biosignals.biosignals_command
+permissions:
+  biosignals.all:
+    children:
+      biosignals.biosignals_command:
+        default: true;

@@ -14,6 +14,7 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -22,14 +23,10 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
 import java.util.*;
-import java.util.function.Consumer;
-import java.util.logging.Level;
-import java.util.logging.LogRecord;
-import java.util.logging.Logger;
 
 public class DatabaseQuerier
 {
-  private static final String SERVER_INTERFACE_URL = "http://www.il-cn.com/BFA/Data/DBInterface.ashx";
+  private String databaseServer = "http://www.il-cn.com/BFA/Data/DBInterface.ashx";
 
   private final JavaPlugin plugin;
 
@@ -100,11 +97,11 @@ public class DatabaseQuerier
     this.playerDataMap = new HashMap<>();
   }
 
-  public void addPlayer(UUID playerUUID, BukkitScheduler scheduler)
+  public void addPlayer(UUID playerUUID, String playerName, BukkitScheduler scheduler)
   {
     try
     {
-      PlayerData data = queryPlayerData(playerUUID);
+      PlayerData data = queryPlayerData(playerUUID, playerName);
 
       if (data != null)
       {
@@ -128,10 +125,7 @@ public class DatabaseQuerier
     PlayerData pData = this.playerDataMap.remove(playerUUID);
 
     if (pData == null)
-    {
-      this.plugin.getLogger().warning("Internal data for player " + playerUUID.toString() + " could not be found.");
       return;
-    }
     pData.dataFetcher.cancel();
   }
 
@@ -143,20 +137,31 @@ public class DatabaseQuerier
     this.playerDataMap.clear();
   }
 
-  public PlayerData queryPlayerData(UUID playerUUID) throws IOException, InterruptedException
+  public PlayerData queryPlayerData(UUID playerUUID, String playerName) throws IOException, InterruptedException
   {
     HttpClient httpClient = HttpClients.createDefault();
-    HttpPost httpPost = new HttpPost(SERVER_INTERFACE_URL);
+    HttpPost httpPost = new HttpPost(databaseServer);
     List<NameValuePair> params = new ArrayList<>(2);
     params.add(new BasicNameValuePair("storeprocedure",
                                       "Get_minecraft_user_details"));
     params.add(new BasicNameValuePair("param1",
                                       playerUUID.toString().replace("-", "")));
+    params.add(new BasicNameValuePair("param2", playerName));
     httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
 
-    Arrays.stream(httpPost.getAllHeaders()).toList().forEach((Header header) -> {this.plugin.getLogger().info(header.toString());});
+    HttpResponse httpResponse;
 
-    HttpResponse httpResponse = httpClient.execute(httpPost);
+    try
+    {
+      httpResponse = httpClient.execute(httpPost);
+    }
+    catch (IOException e)
+    {
+      MinecraftLayer.getInstance().getLogger().warning("Error during sending request to server at \"" + this.databaseServer + "\" : "
+                                                       + Optional.ofNullable(e.getMessage()).orElse(e.getCause().getMessage()));
+      return (null);
+    }
+
     HttpEntity hentity = httpResponse.getEntity();
 
     if (hentity == null)
@@ -203,7 +208,7 @@ public class DatabaseQuerier
     MinecraftLayer.getInstance().getLogger().fine("Querying the server for real time data...");
 
     HttpClient httpClient = HttpClients.createDefault();
-    HttpPost httpPost = new HttpPost(SERVER_INTERFACE_URL);
+    HttpPost httpPost = new HttpPost(databaseServer);
     List<NameValuePair> params = new ArrayList<>(2);
     HttpResponse httpResponse;
     HttpEntity hentity;
@@ -214,7 +219,15 @@ public class DatabaseQuerier
                                       String.valueOf(pData.userNumber)));
     httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
 
-    httpResponse = httpClient.execute(httpPost);
+    try
+    {
+      httpResponse = httpClient.execute(httpPost);
+    }
+    catch (Exception e)
+    {
+      MinecraftLayer.getInstance().getLogger().warning("Error during sending request to server : " + e.getMessage());
+      return (null);
+    }
     hentity = httpResponse.getEntity();
 
     if (hentity == null)
@@ -243,10 +256,20 @@ public class DatabaseQuerier
             ((this.testState & 0x4) != 0 ? "" : jsonData.get("bottom_text").getAsString()),
             ((this.testState & 0x8) != 0 ? "" : jsonData.get("bottom_text_color").getAsString()),
             ((this.testState & 0x10) != 0 ? "" : jsonData.get("picture_url").getAsString()),
-            ((this.testState & 0x20) != 0 ? "" : jsonData.get("audio_url").getAsString())
+            ((this.testState & 0x20) != 0 ? "" : "entity.player.realtimeupdate.test")//jsonData.get("audio_url").getAsString())
     );
 
     return (pRTData);
+  }
+
+  public void setDatabaseServerURL(String url)
+  {
+    this.databaseServer = url;
+  }
+
+  public void saveConfigToJson(JsonObject object)
+  {
+    object.addProperty("database_server_url", this.databaseServer);
   }
 
   public class RealTimeDataFetcher extends BukkitRunnable
@@ -279,10 +302,24 @@ public class DatabaseQuerier
         this.task = scheduler.runTask(MinecraftLayer.getInstance(), () -> {
           Player player = Bukkit.getPlayer(this.playerData.uuid);
 
+          if (player == null)
+            return;
+
           MinecraftLayer.getInstance().getHologramManager().updateHologramDataForPlayer(player, this.playerData);
 
           if (!this.playerData.newData.soundPath.contentEquals(this.playerData.oldData.soundPath))
-            MinecraftLayer.getInstance().getHologramManager().playSoundAroundPlayer(player, 32, pRTData.soundPath);
+          {
+            try
+            {
+              player.playSound(player.getLocation(),"biosignals:" + this.playerData.newData.soundPath, 16.0f, 1.0f);
+            }
+            catch (Exception e)
+            {
+              MinecraftLayer.getInstance().getLogger().warning("Error while trying to play sound " + this.playerData.newData.soundPath + " : ");
+              MinecraftLayer.getInstance().getLogger().warning(e.getMessage());
+            }
+          }
+            //MinecraftLayer.getInstance().getHologramManager().playSoundAroundPlayer(player, 32, pRTData.soundPath);
         });
       }
       catch (IOException e)

@@ -33,7 +33,7 @@ public class EventListener implements Listener
     final UUID userID = e.getPlayer().getUniqueId();
     final Player player = e.getPlayer();
 
-    this.databaseQuerier.addPlayer(userID, Bukkit.getScheduler());
+    this.databaseQuerier.addPlayer(userID, player.getName(), Bukkit.getScheduler());
   }
 
   @EventHandler
