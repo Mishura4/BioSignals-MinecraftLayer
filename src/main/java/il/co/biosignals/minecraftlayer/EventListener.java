@@ -7,6 +7,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerResourcePackStatusEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
@@ -47,5 +48,17 @@ public class EventListener implements Listener
   public void onPlayerMove(PlayerMoveEvent e)
   {
     this.hologramManager.updateHologramLocationForPlayer(e.getPlayer());
+  }
+
+  @EventHandler
+  public void onPlayerResourcePackStatusEvent(PlayerResourcePackStatusEvent e)
+  {
+    if (e.getStatus().equals(PlayerResourcePackStatusEvent.Status.SUCCESSFULLY_LOADED))
+    {
+      Bukkit.getScheduler().runTaskLater(MinecraftLayer.getInstance(), () -> {
+        this.databaseQuerier.setLoadedPack(e.getPlayer().getUniqueId());
+        this.databaseQuerier.playSound(e.getPlayer());
+      }, 20);
+    }
   }
 }

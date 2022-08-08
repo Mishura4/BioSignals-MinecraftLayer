@@ -133,8 +133,21 @@ public class HologramManager
     if (!playerData.newData.bottomText.isEmpty())
       bottomLines.add(getColoredText(playerData.newData.bottomText, playerData.newData.bottomTextColor));
 
-    DHAPI.setHologramLines(hologramData.topHologram, topLines);
-    DHAPI.setHologramLines(hologramData.bottomHologram, bottomLines);
+    if (topLines.isEmpty())
+    {
+      for (int i = 0; i < DHAPI.getHologramPage(hologramData.topHologram, 0).size(); ++i)
+        DHAPI.removeHologramLine(hologramData.topHologram, i);
+    }
+    else
+      DHAPI.setHologramLines(hologramData.topHologram, topLines);
+
+    if (bottomLines.isEmpty())
+    {
+      for (int i = 0; i < DHAPI.getHologramPage(hologramData.bottomHologram, 0).size(); ++i)
+        DHAPI.removeHologramLine(hologramData.bottomHologram, i);
+    }
+    else
+      DHAPI.setHologramLines(hologramData.bottomHologram, bottomLines);
   }
 
   public void updateHologramLocationForPlayer(Player player)

@@ -6,10 +6,17 @@ depend: [DecentHolograms]
 commands:
   biosignals:
     description: The main command for biosignals.
-    usage: /<command>
+    usage: /<command> [uuid]
     permission: biosignals.biosignals_command
+    permission-message: Permission denied.
 permissions:
   biosignals.all:
     children:
       biosignals.biosignals_command:
-        default: true;
+        default: true
+      biosignals.biosignals_command.all:
+        children:
+          biosignals.biosignals_command.uuid:
+            default: true
+          biosignals.biosignals_command.test:
+            default: op

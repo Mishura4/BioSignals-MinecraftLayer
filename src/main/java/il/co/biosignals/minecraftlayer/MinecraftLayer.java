@@ -224,12 +224,12 @@ public class MinecraftLayer extends JavaPlugin
     getServer().getPluginManager().registerEvents(this.eventListener, this);
     getCommand("biosignals").setExecutor(new BiosignalsCommand());
     loadConfig();
+    saveConfig();
   }
 
   @Override
   public void onDisable() {
     this.databaseQuerier.removeAll();
     this.hologramManager.clear();
-    saveConfig();
   }
 }

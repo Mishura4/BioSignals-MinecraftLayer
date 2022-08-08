@@ -7,8 +7,6 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
-import java.util.Arrays;
-
 public class BiosignalsCommand implements CommandExecutor
 {
   @Override
@@ -24,6 +22,8 @@ public class BiosignalsCommand implements CommandExecutor
       if (!(sender instanceof Player))
         return (false);
 
+      if (!sender.hasPermission("biosignals.biosignals_command.uuid"))
+        return (false);
       String playerUUID = ((Player) sender).getUniqueId().toString().replace("-", "");
 
       BaseComponent[] component =
@@ -35,14 +35,16 @@ public class BiosignalsCommand implements CommandExecutor
       ((Player)sender).spigot().sendMessage(component);
       return (true);
     }
-    /*if (args.length < 2)
+    if (args.length < 2)
       return (false);
     if (args[0].contentEquals("test"))
     {
+      if (!sender.hasPermission("biosignals.biosignals_command.test"))
+        return (false);
       MinecraftLayer.getInstance().getDatabaseQuerier().testState = Integer.parseInt(args[1]);
       sender.sendMessage("Test state set to " + MinecraftLayer.getInstance().getDatabaseQuerier().testState);
       return (true);
-    }*/
+    }
     return (false);
   }
 }

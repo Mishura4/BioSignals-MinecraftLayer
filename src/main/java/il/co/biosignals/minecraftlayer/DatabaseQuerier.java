@@ -21,6 +21,8 @@ import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
 
+import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.*;
 
@@ -46,6 +48,7 @@ public class DatabaseQuerier
     public final RealTimeDataFetcher dataFetcher;
     public PlayerRealTimeData oldData;
     public PlayerRealTimeData newData;
+    public boolean hasPackLoaded = false;
 
     protected PlayerData(UUID _uuid, String _firstName, String _lastName, int _userNumber,
                          String _realTimeProcedureName, int _realTimeTimer)
@@ -95,6 +98,15 @@ public class DatabaseQuerier
   {
     this.plugin = _plugin;
     this.playerDataMap = new HashMap<>();
+  }
+
+  public void setLoadedPack(UUID playerUUID)
+  {
+    PlayerData data = this.playerDataMap.get(playerUUID);
+
+    if (data == null)
+      return;
+    data.hasPackLoaded = true;
   }
 
   public void addPlayer(UUID playerUUID, String playerName, BukkitScheduler scheduler)
@@ -205,40 +217,56 @@ public class DatabaseQuerier
       this.plugin.getLogger().warning("Internal data for player " + playerUUID.toString() + " could not be found during real time data query.");
       return (null);
     }
-    MinecraftLayer.getInstance().getLogger().fine("Querying the server for real time data...");
 
-    HttpClient httpClient = HttpClients.createDefault();
-    HttpPost httpPost = new HttpPost(databaseServer);
-    List<NameValuePair> params = new ArrayList<>(2);
-    HttpResponse httpResponse;
-    HttpEntity hentity;
+    JsonElement jsonRoot;
 
-    params.add(new BasicNameValuePair("storeprocedure",
-                                      pData.realTimeProcedureName));
-    params.add(new BasicNameValuePair("param1",
-                                      String.valueOf(pData.userNumber)));
-    httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
-
-    try
+    if ((this.testState & 0x40) == 0)
     {
-      httpResponse = httpClient.execute(httpPost);
-    }
-    catch (Exception e)
-    {
-      MinecraftLayer.getInstance().getLogger().warning("Error during sending request to server : " + e.getMessage());
-      return (null);
-    }
-    hentity = httpResponse.getEntity();
+      MinecraftLayer.getInstance().getLogger().fine("Querying the server for " +
+                                                    "real time data...");
 
-    if (hentity == null)
+      HttpClient httpClient = HttpClients.createDefault();
+      HttpPost httpPost = new HttpPost(databaseServer);
+      List<NameValuePair> params = new ArrayList<>(2);
+      HttpResponse httpResponse;
+      HttpEntity hentity;
+
+      params.add(new BasicNameValuePair("storeprocedure",
+                                        pData.realTimeProcedureName));
+      params.add(new BasicNameValuePair("param1",
+                                        String.valueOf(pData.userNumber)));
+      httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
+
+      try
+      {
+        httpResponse = httpClient.execute(httpPost);
+      }
+      catch (Exception e)
+      {
+        MinecraftLayer.getInstance()
+                      .getLogger()
+                      .warning("Error during sending request to server : " + e.getMessage());
+        return (null);
+      }
+      hentity = httpResponse.getEntity();
+
+      if (hentity == null)
+      {
+        this.plugin.getLogger()
+                   .warning("Retrieving real-time data for " + playerUUID.toString() + " failed :");
+        this.plugin.getLogger().warning(httpResponse.getStatusLine().toString());
+        return (null);
+      }
+
+      String response = EntityUtils.toString(hentity);
+      jsonRoot = JsonParser.parseString(response);
+    }
+    else
     {
-      this.plugin.getLogger().warning("Retrieving real-time data for " + playerUUID.toString() + " failed :");
-      this.plugin.getLogger().warning(httpResponse.getStatusLine().toString());
-      return (null);
+      File testFile = new File(this.plugin.getDataFolder(), "testrealtimedata.json");
+      jsonRoot = JsonParser.parseReader(new FileReader(testFile));
     }
 
-    String response = EntityUtils.toString(hentity);
-    JsonElement jsonRoot = JsonParser.parseString(response);
     if (jsonRoot.isJsonArray()) // See comment in queryPlayerData
       jsonRoot = jsonRoot.getAsJsonArray().get(0);
     if (!jsonRoot.isJsonObject())
@@ -256,7 +284,7 @@ public class DatabaseQuerier
             ((this.testState & 0x4) != 0 ? "" : jsonData.get("bottom_text").getAsString()),
             ((this.testState & 0x8) != 0 ? "" : jsonData.get("bottom_text_color").getAsString()),
             ((this.testState & 0x10) != 0 ? "" : jsonData.get("picture_url").getAsString()),
-            ((this.testState & 0x20) != 0 ? "" : "entity.player.realtimeupdate.test")//jsonData.get("audio_url").getAsString())
+            ((this.testState & 0x20) != 0 ? "" : jsonData.get("audio_url").getAsString())
     );
 
     return (pRTData);
@@ -270,6 +298,27 @@ public class DatabaseQuerier
   public void saveConfigToJson(JsonObject object)
   {
     object.addProperty("database_server_url", this.databaseServer);
+  }
+
+  public void playSound(Player player)
+  {
+    PlayerData data = this.playerDataMap.get(player.getUniqueId());
+
+    if (data == null)
+      return;
+
+    if (!data.newData.soundPath.isEmpty())
+    {
+      try
+      {
+        player.playSound(player.getLocation(),"biosignals:" + data.newData.soundPath, 16.0f, 1.0f);
+      }
+      catch (Exception e)
+      {
+        MinecraftLayer.getInstance().getLogger().warning("Error while trying to play sound " + data.newData.soundPath + " : ");
+        MinecraftLayer.getInstance().getLogger().warning(e.getMessage());
+      }
+    }
   }
 
   public class RealTimeDataFetcher extends BukkitRunnable
@@ -289,15 +338,18 @@ public class DatabaseQuerier
 
       try
       {
-        this.playerData.oldData = this.playerData.newData;
         pRTData = MinecraftLayer.getInstance().getDatabaseQuerier().queryPlayerRealTimeData(this.playerData.uuid);
-        this.playerData.newData = pRTData;
 
         if (this.isCancelled()) // We need to check for this in case the query started BEFORE we cancelled but finished AFTER
         {
           MinecraftLayer.getInstance().getLogger().fine("Server responded after cancelling - aborting");
           return;
         }
+        if (pRTData == null)
+          return;
+
+        this.playerData.oldData = this.playerData.newData;
+        this.playerData.newData = pRTData;
         BukkitScheduler scheduler = Bukkit.getScheduler();
         this.task = scheduler.runTask(MinecraftLayer.getInstance(), () -> {
           Player player = Bukkit.getPlayer(this.playerData.uuid);
@@ -307,19 +359,8 @@ public class DatabaseQuerier
 
           MinecraftLayer.getInstance().getHologramManager().updateHologramDataForPlayer(player, this.playerData);
 
-          if (!this.playerData.newData.soundPath.contentEquals(this.playerData.oldData.soundPath))
-          {
-            try
-            {
-              player.playSound(player.getLocation(),"biosignals:" + this.playerData.newData.soundPath, 16.0f, 1.0f);
-            }
-            catch (Exception e)
-            {
-              MinecraftLayer.getInstance().getLogger().warning("Error while trying to play sound " + this.playerData.newData.soundPath + " : ");
-              MinecraftLayer.getInstance().getLogger().warning(e.getMessage());
-            }
-          }
-            //MinecraftLayer.getInstance().getHologramManager().playSoundAroundPlayer(player, 32, pRTData.soundPath);
+          if (this.playerData.hasPackLoaded == true && !this.playerData.newData.soundPath.contentEquals(this.playerData.oldData.soundPath))
+            playSound(player);
         });
       }
       catch (IOException e)
