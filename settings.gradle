@@ -1,2 +1,12 @@
-rootProject.name = 'MinecraftLayer'
+pluginManagement {
+    repositories {
+        mavenCentral()
+        maven {
+            url = "https://repo.screamingsandals.org/public/"
+        }
 
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = 'MinecraftLayer'

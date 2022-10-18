@@ -14,20 +14,83 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.message.BasicNameValuePair;
 import org.apache.http.util.EntityUtils;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.SoundCategory;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitScheduler;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Vector;
 
 import java.io.File;
 import java.io.FileReader;
 import java.io.IOException;
 import java.util.*;
+import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 public class DatabaseQuerier
 {
+  private Map pickedupLogs = new HashMap();
+
+  public abstract class HologramData
+  {
+    public final Location position;
+
+    public HologramData(Location _position)
+    {
+      this.position = _position;
+    }
+
+    protected boolean _equals(HologramData other)
+    {
+      return (position.equals(other.position));
+    }
+  }
+
+  public class HologramTextData extends HologramData
+  {
+    public final String text;
+    public final String color;
+
+    public HologramTextData(Location _position, String _text, String _color)
+    {
+      super(_position);
+      this.text = _text;
+      this.color = _color;
+    }
+
+    @Override
+    public boolean equals(Object obj)
+    {
+      if (!(obj instanceof HologramTextData))
+        return (false);
+
+      HologramTextData other = (HologramTextData) obj;
+
+      if (!super._equals(other))
+        return (false);
+      if (!this.text.contentEquals(other.text))
+        return (false);
+      if (!this.color.contentEquals(other.text))
+        return (false);
+      return (true);
+    }
+  }
+
+  public class HologramPictureData extends HologramData
+  {
+    public final String picturePath;
+
+    public HologramPictureData(Location _position, String _picturePath)
+    {
+      super(_position);
+      this.picturePath = _picturePath;
+    }
+  }
+
   private String databaseServer = "http://www.il-cn.com/BFA/Data/DBInterface.ashx";
 
   private final JavaPlugin plugin;
@@ -60,7 +123,10 @@ public class DatabaseQuerier
       this.realTimeProcedureName = _realTimeProcedureName;
       this.realTimeTimer = _realTimeTimer;
       this.dataFetcher = new RealTimeDataFetcher(this);
-      this.newData = new PlayerRealTimeData("", "", "", "", "", "");
+      this.newData = new PlayerRealTimeData(new HologramTextData(new Location(null, 0.0, 0.0, 0.0), "", ""),
+                                            new HologramTextData(new Location(null, 0.0, 0.0, 0.0), "", ""),
+                                            new HologramPictureData(new Location(null, 0.0, 0.0, 0.0), ""),
+                                            "", "", -1);
     }
 
     @Override
@@ -74,23 +140,28 @@ public class DatabaseQuerier
 
   public class PlayerRealTimeData
   {
-    public final String topText;
-    public final String topTextColor;
-    public final String bottomText;
-    public final String bottomTextColor;
-    public final String texturePath;
+    public final HologramTextData topText;
+    public final HologramTextData bottomText;
+    public final HologramPictureData picture;
     public final String soundPath;
+    public final String command;
+    public final int commandNumber;
+    public boolean commandResponse = false;
+    public String commandLogs = "";
 
-    public PlayerRealTimeData(String _topText, String _topTextColor,
-                              String _bottomText, String _bottomTextColor,
-                              String _texturePath, String _soundPath)
+    public PlayerRealTimeData(HologramTextData _topText,
+                              HologramTextData _bottomText,
+                              HologramPictureData _picture,
+                              String _soundPath,
+                              String _command,
+                              int _serialNumber)
     {
       this.topText = _topText;
-      this.topTextColor = _topTextColor;
       this.bottomText = _bottomText;
-      this.bottomTextColor = _bottomTextColor;
-      this.texturePath = _texturePath;
+      this.picture = _picture;
       this.soundPath = _soundPath;
+      this.command = _command;
+      this.commandNumber = _serialNumber;
     }
   }
 
@@ -147,6 +218,74 @@ public class DatabaseQuerier
       data.dataFetcher.cancel();
     });
     this.playerDataMap.clear();
+  }
+
+  public String sendRequest(UUID playerUUID, String playerName, String request) throws IOException, InterruptedException
+  {
+    request = request.substring(0, Math.min(request.length(), 255));
+    HttpClient httpClient = HttpClients.createDefault();
+    HttpPost httpPost = new HttpPost(databaseServer);
+    List<NameValuePair> params = new ArrayList<>(2);
+    params.add(new BasicNameValuePair("storeprocedure",
+                                      "minecraft_player_request"));
+    params.add(new BasicNameValuePair("param1",
+                                      playerUUID.toString().replace("-", "")));
+    params.add(new BasicNameValuePair("param2", playerName));
+    params.add(new BasicNameValuePair("param3", request));
+    httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
+
+    HttpResponse httpResponse;
+
+    try
+    {
+      httpResponse = httpClient.execute(httpPost);
+    }
+    catch (IOException e)
+    {
+      MinecraftLayer.getInstance().getLogger().warning("Error during sending request to server at \"" + this.databaseServer + "\" : "
+                                                       + Optional.ofNullable(e.getMessage()).orElse(e.getCause().getMessage()));
+      return (null);
+    }
+
+    HttpEntity hentity = httpResponse.getEntity();
+
+    if (hentity == null)
+    {
+      this.plugin.getLogger().warning("Retrieving information for " + playerUUID.toString() + " failed :");
+      this.plugin.getLogger().warning(httpResponse.getStatusLine().toString());
+      return (null);
+    }
+
+    String response = EntityUtils.toString(hentity);
+    JsonElement jsonRoot = JsonParser.parseString(response);
+    if (jsonRoot.isJsonArray()) // The server does this at the time of writing this code, so
+      jsonRoot = jsonRoot.getAsJsonArray().get(0);
+    if (!jsonRoot.isJsonObject())
+    {
+      this.plugin.getLogger().warning("Retrieving information for " + playerUUID.toString() + " failed :");
+      this.plugin.getLogger().warning("Server sent an invalid JSON  :");
+      this.plugin.getLogger().warning(jsonRoot.toString());
+      return (null);
+    }
+    JsonObject jsonData = jsonRoot.getAsJsonObject();
+    return (jsonData.get("reply").getAsString());
+  }
+
+  <T>T getJsonValue(JsonObject object, String key, T defaultValue, Function<JsonElement, T> getter)
+  {
+    JsonElement element = object.get(key);
+
+    if (element == null)
+    {
+      MinecraftLayer.getInstance().getLogger().warning("Could not find Json Element \"" + key + "\" in server response");
+      return (defaultValue);
+    }
+    if (element.isJsonNull())
+    {
+      MinecraftLayer.getInstance().getLogger().fine("Server sent null for \"" + key + "\"");
+      return (defaultValue);
+    }
+    return (getter.apply(element));
   }
 
   public PlayerData queryPlayerData(UUID playerUUID, String playerName) throws IOException, InterruptedException
@@ -219,23 +358,29 @@ public class DatabaseQuerier
     }
 
     JsonElement jsonRoot;
+    String response;
+
+    HttpClient httpClient = HttpClients.createDefault();
+    HttpPost httpPost = new HttpPost(databaseServer);
+    List<NameValuePair> params = new ArrayList<>(2);
+    HttpResponse httpResponse;
+    HttpEntity hentity;
+
+    params.add(new BasicNameValuePair("storeprocedure",
+                                      pData.realTimeProcedureName));
+    params.add(new BasicNameValuePair("param1",
+                                      String.valueOf(pData.userNumber)));
+    params.add(new BasicNameValuePair("param2",
+                                      (pData.newData != null && !pData.newData.command.isEmpty() ? pData.newData.commandLogs : "")));
+    params.add(new BasicNameValuePair("param3",
+                                      String.valueOf(pData.newData != null ? pData.newData.commandNumber : -1)));
+
+    httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
 
     if ((this.testState & 0x40) == 0)
     {
       MinecraftLayer.getInstance().getLogger().fine("Querying the server for " +
                                                     "real time data...");
-
-      HttpClient httpClient = HttpClients.createDefault();
-      HttpPost httpPost = new HttpPost(databaseServer);
-      List<NameValuePair> params = new ArrayList<>(2);
-      HttpResponse httpResponse;
-      HttpEntity hentity;
-
-      params.add(new BasicNameValuePair("storeprocedure",
-                                        pData.realTimeProcedureName));
-      params.add(new BasicNameValuePair("param1",
-                                        String.valueOf(pData.userNumber)));
-      httpPost.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
 
       try
       {
@@ -258,13 +403,17 @@ public class DatabaseQuerier
         return (null);
       }
 
-      String response = EntityUtils.toString(hentity);
+      response = EntityUtils.toString(hentity);
+
       jsonRoot = JsonParser.parseString(response);
     }
     else
     {
+      this.plugin.getLogger().warning("TEST MODE ON");
+      this.plugin.getLogger().info("Data to be sent to the server : " + params.toString());
       File testFile = new File(this.plugin.getDataFolder(), "testrealtimedata.json");
       jsonRoot = JsonParser.parseReader(new FileReader(testFile));
+      response = "";
     }
 
     if (jsonRoot.isJsonArray()) // See comment in queryPlayerData
@@ -272,19 +421,49 @@ public class DatabaseQuerier
     if (!jsonRoot.isJsonObject())
     {
       this.plugin.getLogger().warning("Retrieving real-time for " + playerUUID.toString() + " failed :");
-      this.plugin.getLogger().warning("Server sent an invalid JSON object");
+      this.plugin.getLogger().warning("Server sent an invalid JSON object :");
+      this.plugin.getLogger().warning("\"" + response + "\"");
       return (null);
     }
 
     JsonObject jsonData = jsonRoot.getAsJsonObject();
 
+    Location topLocation = new Location(
+            null,
+            getJsonValue(jsonData, "top_text_x", 0.0, e -> e.getAsDouble()),
+            getJsonValue(jsonData, "top_text_y", MinecraftLayer.getInstance().getHologramManager().topOffset + 0.25, e -> e.getAsDouble()),
+            getJsonValue(jsonData, "top_text_z", 0.0, e -> e.getAsDouble())
+    );
+    Location bottomLocation = new Location(
+            null,
+            getJsonValue(jsonData, "bottom_text_x", 0.0, e -> e.getAsDouble()),
+            getJsonValue(jsonData, "bottom_text_y", MinecraftLayer.getInstance().getHologramManager().bottomOffset, e -> e.getAsDouble()),
+            getJsonValue(jsonData, "bottom_text_z", 0.0, e -> e.getAsDouble())
+    );
+    Location pictureLocation = new Location(
+            null,
+            getJsonValue(jsonData, "picture_url_x", topLocation.getX(), e -> e.getAsDouble()),
+            getJsonValue(jsonData, "picture_url_y", topLocation.getY() + 0.75,  e -> e.getAsDouble()),
+            getJsonValue(jsonData, "picture_url_z", topLocation.getZ(), e -> e.getAsDouble())
+    );
     PlayerRealTimeData pRTData = new PlayerRealTimeData(
-            ((this.testState & 0x1) != 0 ? "" : jsonData.get("top_text").getAsString()),
-            ((this.testState & 0x2) != 0 ? "" : jsonData.get("top_text_color").getAsString()),
-            ((this.testState & 0x4) != 0 ? "" : jsonData.get("bottom_text").getAsString()),
-            ((this.testState & 0x8) != 0 ? "" : jsonData.get("bottom_text_color").getAsString()),
-            ((this.testState & 0x10) != 0 ? "" : jsonData.get("picture_url").getAsString()),
-            ((this.testState & 0x20) != 0 ? "" : jsonData.get("audio_url").getAsString())
+            new HologramTextData(
+                    topLocation,
+                    getJsonValue(jsonData, "top_text", "", e -> e.getAsString()),
+                    getJsonValue(jsonData, "top_text_color", "", e -> e.getAsString())
+            ),
+            new HologramTextData(
+                    bottomLocation,
+                    getJsonValue(jsonData, "bottom_text", "", e -> e.getAsString()),
+                    getJsonValue(jsonData, "bottom_text_color", "", e -> e.getAsString())
+            ),
+            new HologramPictureData(
+                    pictureLocation,
+                    getJsonValue(jsonData, "picture_url", "", e -> e.getAsString())
+            ),
+            getJsonValue(jsonData, "audio_url", "", e -> e.getAsString()),
+            getJsonValue(jsonData, "game_command", "", e -> e.getAsString()),
+            getJsonValue(jsonData, "command_serial_number", -1, e -> e.getAsInt())
     );
 
     return (pRTData);
@@ -358,6 +537,34 @@ public class DatabaseQuerier
             return;
 
           MinecraftLayer.getInstance().getHologramManager().updateHologramDataForPlayer(player, this.playerData);
+          if (!this.playerData.newData.command.isEmpty())
+          {
+            List<String> finalLogList = new LinkedList<>();
+            List<String> logList = new LinkedList<>();
+            MinecraftLayer.getInstance().getLogger().warning(this.playerData.newData.command);
+            for (String command : this.playerData.newData.command.split(
+                    "\\\\\\\\"))
+            {
+
+              MinecraftLayer.getInstance()
+                            .getLogger()
+                            .info("Executing command \"" + command +
+                                  "\" for player " + player.getName());
+              this.playerData.newData.commandResponse = MinecraftLayer.getInstance()
+                                                                      .executeCommand(
+                                                                              command,
+                                                                              player, logList);
+              String combinedLogs = String.join("\n", logList);
+              if (!this.playerData.newData.commandResponse)
+                MinecraftLayer.getInstance()
+                              .getLogger()
+                              .warning("Command failed to parse : " + combinedLogs);
+              finalLogList.add(combinedLogs);
+              logList.clear();
+            }
+            this.playerData.newData.commandLogs = String.join("\\\\", finalLogList);
+          }
+
 
           if (this.playerData.hasPackLoaded == true && !this.playerData.newData.soundPath.contentEquals(this.playerData.oldData.soundPath))
             playSound(player);

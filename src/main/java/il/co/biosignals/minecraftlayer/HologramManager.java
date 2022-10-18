@@ -9,7 +9,9 @@ import org.bukkit.SoundCategory;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.util.Vector;
 
+import java.lang.reflect.Array;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -18,18 +20,46 @@ public class HologramManager
   private final JavaPlugin plugin;
 
   private String itemOverride;
-  private double topOffset;
-  private double bottomOffset;
+  public double topOffset;
+  public double bottomOffset;
 
   private Map<String, Integer> customModelDataMap = new HashMap<>();
 
-  private class HologramData
+  private class HologramSet
   {
-    private Hologram topHologram;
-    private Hologram bottomHologram;
+    public class Data
+    {
+      public LinkedList<String> linesString = new LinkedList<>();
+      public Hologram hologram = null;
+      public HologramLine line = null;
+      public DatabaseQuerier.HologramData data = null;
+      public boolean changed = false;
+    }
+
+    public enum ID
+    {
+      BOTTOM(0),
+      TOP(1),
+      PICTURE(2),
+      MAX(3);
+
+      public final int value;
+
+      ID(int _value)
+      {
+        this.value = _value;
+      }
+
+      public int intValue()
+      {
+        return (this.value);
+      }
+    }
+
+    private Data[] data = {new Data(), new Data(), new Data()};
   }
 
-  Map<Player, HologramData> holograms;
+  Map<Player, HologramSet> holograms;
 
   HologramManager(JavaPlugin _plugin)
   {
@@ -57,19 +87,33 @@ public class HologramManager
     this.bottomOffset = _bottomOffset;
   }
 
-  public Location getTopLocationForPlayer(Player player)
+  public Location getPictureLocationForPlayer(Player player)
   {
+    HologramSet hologramSet = this.holograms.get(player);
+    Location hologramPosition = hologramSet.data[HologramSet.ID.PICTURE.intValue()].data.position;
     Location ret = player.getLocation();
 
-    ret.setY(ret.getY() + topOffset);
+    ret.add(hologramPosition.getX(), hologramPosition.getY(), hologramPosition.getZ());
+    return (ret);
+  }
+
+  public Location getTopLocationForPlayer(Player player)
+  {
+    HologramSet hologramSet = this.holograms.get(player);
+    Location hologramPosition = hologramSet.data[HologramSet.ID.TOP.intValue()].data.position;
+    Location ret = player.getLocation();
+
+    ret.add(hologramPosition.getX(), hologramPosition.getY(), hologramPosition.getZ());
     return (ret);
   }
 
   public Location getBottomLocationForPlayer(Player player)
   {
+    HologramSet hologramSet = this.holograms.get(player);
+    Location hologramPosition = hologramSet.data[HologramSet.ID.BOTTOM.intValue()].data.position;
     Location ret = player.getLocation();
 
-    ret.setY(ret.getY() + bottomOffset);
+    ret.add(hologramPosition.getX(), hologramPosition.getY(), hologramPosition.getZ());
     return (ret);
   }
 
@@ -80,85 +124,148 @@ public class HologramManager
     return ("<" + color + ">" + text + "</" + color + ">");
   }
 
-  public void updateHologramDataForPlayer(Player player, DatabaseQuerier.PlayerData playerData)
+  private HologramSet.Data getMergedHolograms(HologramSet set, HologramSet.ID hologramId)
   {
-    HologramData hologramData = this.holograms.get(player);
-    List<String> topLines = new LinkedList<>();
-    List<String> bottomLines = new LinkedList<>();
+    HologramSet.Data target = set.data[hologramId.intValue()];
+    return (target);
+    /*HologramSet.Data first = null;
 
-    if (hologramData == null)
-    {/*
-      // --- TODO : find out why holograms are saved, and why we need to check if they exist when someone logs in
-      hologramData = DHAPI.getHologram(player.getName());
-      if (hologramData != null)
-        DHAPI.removeHologram(player.getName());
-      // ---*/
-
-      hologramData = new HologramData();
-      hologramData.topHologram = DHAPI.createHologram(player.getName() + "_top", getTopLocationForPlayer(player), false);
-      hologramData.topHologram.setDownOrigin(true);
-      hologramData.bottomHologram = DHAPI.createHologram(player.getName() + "_bottom", getBottomLocationForPlayer(player), false);
-      this.holograms.put(player, hologramData);
-    }
-
-    if(!playerData.newData.texturePath.isEmpty())
+    for (HologramSet.Data entry : set.data)
     {
-      int modelId = customModelDataMap.getOrDefault(playerData.newData.texturePath, 0);
+      if (entry.data.position.equals(target.data.position))
+      {
+        first = entry;
+        break;
+      }
+    }*/
+  }
 
+  public void changePosition(HologramSet set, HologramSet.ID hologramId, Location newPosition)
+  {
+  }
+
+  public void changeTexture(HologramSet set, HologramSet.ID hologramId, String newTexture)
+  {
+    HologramSet.Data data = set.data[hologramId.intValue()];
+
+    int modelId = customModelDataMap.getOrDefault(newTexture, 0);
+
+    if (modelId == 0)
+    {
+      modelId = customModelDataMap.getOrDefault("error", 0);
+      MinecraftLayer.getInstance()
+                    .getLogger()
+                    .warning("Could not find a model ID for name " +
+                             newTexture +
+                             " ; defaulting to model \"error\"");
+      MinecraftLayer.getInstance()
+                    .getLogger()
+                    .warning(
+                            "Make sure the item is registered in the configuration file at " +
+                            MinecraftLayer.getInstance().getDataFolder() +
+                            "/config.json");
       if (modelId == 0)
       {
-        if (!playerData.newData.texturePath.contentEquals(playerData.oldData.texturePath))
-        {
-          MinecraftLayer.getInstance()
-                        .getLogger()
-                        .warning("Could not find a model ID for name " +
-                                 playerData.newData.texturePath +
-                                 " ; defaulting to model ID 1");
-          MinecraftLayer.getInstance()
-                        .getLogger()
-                        .warning(
-                                "Make sure the item is registered in the configuration file at " +
-                                MinecraftLayer.getInstance().getDataFolder() +
-                                "/config.json");
-        }
+        MinecraftLayer.getInstance()
+                      .getLogger()
+                      .warning("Model \"error\" could not be found, defaulting to 1");
         modelId = 1;
       }
-
-      topLines.add("#ICON: " + this.itemOverride + "{CustomModelData:" + modelId + "}");
     }
 
-    if (!playerData.newData.topText.isEmpty())
-      topLines.add(getColoredText(playerData.newData.topText, playerData.newData.topTextColor));
+    MinecraftLayer.getInstance()
+                  .getLogger()
+                  .warning("Picture update is " + "#ICON: " + this.itemOverride + "{CustomModelData:" + modelId + "}");
+    data.linesString.clear();
+    data.linesString.add("#ICON: " + this.itemOverride + "{CustomModelData:" + modelId + "}");
+    data.changed = true;
+  }
 
-    if (!playerData.newData.bottomText.isEmpty())
-      bottomLines.add(getColoredText(playerData.newData.bottomText, playerData.newData.bottomTextColor));
+  public void changeText(HologramSet set, HologramSet.ID hologramId, String newText)
+  {
+    HologramSet.Data data = set.data[hologramId.intValue()];
 
-    if (topLines.isEmpty())
+    data.linesString.add(newText);
+    data.changed = true;
+  }
+
+  public void updateHologramDataForPlayer(Player player, DatabaseQuerier.PlayerData playerData)
+  {
+    HologramSet hologramSet = this.holograms.get(player);
+    if (hologramSet == null)
     {
-      for (int i = 0; i < DHAPI.getHologramPage(hologramData.topHologram, 0).size(); ++i)
-        DHAPI.removeHologramLine(hologramData.topHologram, i);
+      hologramSet = new HologramSet();
+      this.holograms.put(player, hologramSet);
+      hologramSet.data[HologramSet.ID.TOP.intValue()].data = playerData.newData.topText;
+      hologramSet.data[HologramSet.ID.BOTTOM.intValue()].data = playerData.newData.bottomText;
+      hologramSet.data[HologramSet.ID.PICTURE.intValue()].data = playerData.newData.picture;
+      hologramSet.data[HologramSet.ID.TOP.intValue()].hologram = DHAPI.createHologram(player.getName() + "_" + HologramSet.ID.TOP.intValue(), getTopLocationForPlayer(player));
+      hologramSet.data[HologramSet.ID.BOTTOM.intValue()].hologram = DHAPI.createHologram(player.getName() + "_" + HologramSet.ID.BOTTOM.intValue(), getBottomLocationForPlayer(player));
+      hologramSet.data[HologramSet.ID.PICTURE.intValue()].hologram = DHAPI.createHologram(player.getName() + "_" + HologramSet.ID.PICTURE.intValue(), getPictureLocationForPlayer(player));
     }
     else
-      DHAPI.setHologramLines(hologramData.topHologram, topLines);
-
-    if (bottomLines.isEmpty())
     {
-      for (int i = 0; i < DHAPI.getHologramPage(hologramData.bottomHologram, 0).size(); ++i)
-        DHAPI.removeHologramLine(hologramData.bottomHologram, i);
+      hologramSet.data[HologramSet.ID.TOP.intValue()].data = playerData.newData.topText;
+      hologramSet.data[HologramSet.ID.BOTTOM.intValue()].data = playerData.newData.bottomText;
+      hologramSet.data[HologramSet.ID.PICTURE.intValue()].data = playerData.newData.picture;
     }
-    else
-      DHAPI.setHologramLines(hologramData.bottomHologram, bottomLines);
+
+    for (int i = 0; i < HologramSet.ID.MAX.intValue(); ++i)
+      hologramSet.data[i].linesString.clear();
+
+    if (hologramSet == null)
+      hologramSet = new HologramSet();
+
+    if (playerData.newData.picture != null)
+    {
+      if (!playerData.newData.picture.position.equals(playerData.oldData.picture.position))
+        changePosition(hologramSet, HologramSet.ID.PICTURE, playerData.newData.picture.position);
+      changeTexture(hologramSet, HologramSet.ID.PICTURE, playerData.oldData.picture.picturePath);
+    }
+
+    DatabaseQuerier.HologramTextData textdata = playerData.newData.topText;
+
+    //if (!textdata.position.equals(playerData.oldData.topText.position))
+    if (!textdata.text.isEmpty())
+    {
+      changePosition(hologramSet, HologramSet.ID.TOP, textdata.position);
+      changeText(hologramSet, HologramSet.ID.TOP, getColoredText(textdata.text, textdata.color));
+    }
+
+    textdata = playerData.newData.bottomText;
+    if (!textdata.text.isEmpty())
+    {
+      changePosition(hologramSet, HologramSet.ID.BOTTOM, textdata.position);
+      changeText(hologramSet, HologramSet.ID.BOTTOM, getColoredText(textdata.text, textdata.color));
+    }
+
+    for (HologramSet.Data entry : hologramSet.data)
+    {
+      if (entry.linesString.isEmpty())
+      {
+        for (int i = 0;
+             i < DHAPI.getHologramPage(entry.hologram, 0).size(); ++i)
+          DHAPI.removeHologramLine(entry.hologram, i);
+      }
+      else
+        DHAPI.setHologramLines(entry.hologram, entry.linesString);
+    }
+    if (!playerData.oldData.topText.position.equals(playerData.newData.topText.position) ||
+        !playerData.oldData.bottomText.position.equals(playerData.newData.bottomText.position) ||
+        !playerData.oldData.picture.position.equals(playerData.newData.picture.position))
+      updateHologramLocationForPlayer(player);
   }
 
   public void updateHologramLocationForPlayer(Player player)
   {
-    HologramData _hologram = this.holograms.get(player);
+    HologramSet _hologram = this.holograms.get(player);
 
     if (_hologram == null) // We have not received data yet, nothing to display
       return;
 
-    DHAPI.moveHologram(_hologram.topHologram, getTopLocationForPlayer(player));
-    DHAPI.moveHologram(_hologram.bottomHologram, getBottomLocationForPlayer(player));
+    DHAPI.moveHologram(_hologram.data[HologramSet.ID.TOP.intValue()].hologram, getTopLocationForPlayer(player));
+    DHAPI.moveHologram(_hologram.data[HologramSet.ID.BOTTOM.intValue()].hologram, getBottomLocationForPlayer(player));
+    DHAPI.moveHologram(_hologram.data[HologramSet.ID.PICTURE.intValue()].hologram, getPictureLocationForPlayer(player));
 
     /* TODO: fix this? why doesnt it work but the code above does??
     _hologram.setLocation(getLocationForPlayer(player));
@@ -196,21 +303,25 @@ public class HologramManager
 
   public void removePlayer(Player p)
   {
-    HologramData hologram = this.holograms.remove(p);
+    HologramSet hologram = this.holograms.remove(p);
 
     if (hologram == null)
       return;
 
-    hologram.topHologram.delete();
-    hologram.bottomHologram.delete();
+    for (HologramSet.Data entry : hologram.data)
+    {
+      entry.hologram.delete();
+    }
   }
 
   public void clear()
   {
-    this.holograms.forEach((Player p, HologramData h) ->
+    this.holograms.forEach((Player p, HologramSet h) ->
      {
-       h.topHologram.delete();
-       h.bottomHologram.delete();
+       for (HologramSet.Data entry : h.data)
+       {
+         entry.hologram.delete();
+       }
      });
   }
 

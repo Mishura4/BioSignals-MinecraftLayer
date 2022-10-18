@@ -2,10 +2,16 @@ package il.co.biosignals.minecraftlayer;
 
 import net.md_5.bungee.api.ChatColor;
 import net.md_5.bungee.api.chat.*;
+import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
+
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 public class BiosignalsCommand implements CommandExecutor
 {
@@ -37,6 +43,44 @@ public class BiosignalsCommand implements CommandExecutor
     }
     if (args.length < 2)
       return (false);
+    if (args[0].contentEquals("request"))
+    {
+      if (!(sender instanceof Player))
+        return (false);
+      if (!sender.hasPermission("biosignals.biosignals_command.request"))
+        return (false);
+      final String[] requestArray = Arrays.copyOfRange(args, 1, args.length);
+      final String request = String.join(" ", requestArray);
+      final UUID playerUUID = ((Player) sender).getUniqueId();
+      final String playerName = ((Player) sender).getName();
+
+      MinecraftLayer.getInstance().getLogger().info("Player " + playerName + " is sending request \"" + request + "\"");
+
+      Bukkit.getScheduler().runTaskAsynchronously(MinecraftLayer.getInstance(), () -> {
+        try
+        {
+          final String response = MinecraftLayer.getInstance().getDatabaseQuerier().sendRequest(playerUUID, playerName, request);
+          Bukkit.getScheduler().runTask(
+            MinecraftLayer.getInstance(),
+            () -> {
+              MinecraftLayer.getInstance().getLogger().info("Player request from " + playerName + " has gotten response \"" + response + "\"");
+
+              if (response.isEmpty())
+                return;
+              MinecraftLayer.getInstance().handlePlayerRequestResponse(
+                playerUUID,
+                response
+              );
+            }
+          );
+        }
+        catch (Exception e)
+        {
+          e.printStackTrace();
+        }
+      });
+      return (true);
+    }
     if (args[0].contentEquals("test"))
     {
       if (!sender.hasPermission("biosignals.biosignals_command.test"))

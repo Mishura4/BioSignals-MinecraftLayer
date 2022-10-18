@@ -1,5 +1,6 @@
 plugins {
     id 'java'
+    id 'org.screamingsandals.nms-mapper' version '1.3.0'
 }
 
 group 'il.co.biosignals'
@@ -37,6 +38,9 @@ repositories {
 }
 
 dependencies {
+    implementation 'org.apache.logging.log4j:log4j-api:2.19.0'
+    implementation 'org.apache.logging.log4j:log4j-core:2.19.0'
+    implementation 'org.jetbrains:annotations:20.1.0'
     compileOnly 'org.spigotmc:spigot-api:1.19.1-R0.1-SNAPSHOT' // The Spigot API with no shadowing. Requires the OSS repo.
    // compileOnly 'org.spigotmc:spigot:1.19-R0.1-SNAPSHOT' // The full Spigot server with no shadowing. Requires mavenLocal.
 
@@ -49,4 +53,41 @@ dependencies {
 
 test {
     useJUnitPlatform()
+}/* First add a new source set. Don't use your main source set for generated stuff. */
+sourceSets.main.java {
+    srcDir 'src/generated/java' // adds new directory to the source set
 }
+
+/* All other things will be set inside the nmsGen method. */
+nmsGen {
+    basePackage = "com.example.nms.accessors" // All generated classes will be in this package.
+    sourceSet = "src/generated/java" // All generated classes will be part of this source set.
+    minMinecraftVersion = "1.19.2" // Optional, default value is 1.9.4
+    maxMinecraftVersion = "1.19.2" // Optional, default value is the last known version
+    nullableAnnotation = "org.jetbrains.annotations.Nullable" // Optional, nullable return types or parameters will be annotated with this if present
+    notNullAnnotation = "org.jetbrains.annotations.NotNull" // (not used yet) Optional, not-null return type or parameters will be annotated with this if present
+    addInformationJavadoc = true // Optional, default value is true
+    mapForPlatforms = ["searge", "spigot"] // Optional, default value is ["searge", "spigot"]
+
+    /*
+     * This means that the folder will be cleared before generation.
+     *
+     * If this value is false, old no longer used classes won't be removed.
+     */
+    cleanOnRebuild = true
+
+    var Component = reqClass('net.minecraft.network.chat.Component') {
+        reqMethod('getString')
+    }
+
+    var CommandSource = reqClass('net.minecraft.commands.CommandSource') {
+        reqMethod('sendSystemMessage', Component)
+    }
+
+    reqClass('net.minecraft.commands.CommandSourceStack') {
+        reqMethod('withSource', CommandSource)
+        reqField('source')
+    }
+}
+
+tasks.getByName('compileJava').dependsOn('generateNmsComponents')

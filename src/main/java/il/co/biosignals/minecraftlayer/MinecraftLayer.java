@@ -1,21 +1,37 @@
 package il.co.biosignals.minecraftlayer;
 
+import com.example.nms.accessors.CommandSourceAccessor;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import org.apache.logging.log4j.LogManager;
+import org.bukkit.Bukkit;
+import org.bukkit.Server;
+import org.bukkit.command.*;
+import org.bukkit.command.defaults.BukkitCommand;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.naming.ConfigurationException;
 import java.io.*;
+import java.lang.invoke.MethodHandle;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.MethodType;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.text.DecimalFormat;
 import java.text.NumberFormat;
 import java.text.ParseException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import java.util.function.BiFunction;
 import java.util.function.Function;
+import java.util.logging.Logger;
+
+import com.example.nms.accessors.CommandSourceStackAccessor;
+
 
 public class MinecraftLayer extends JavaPlugin
 {
@@ -31,6 +47,8 @@ public class MinecraftLayer extends JavaPlugin
   private Map<String, Object> configValues = new HashMap<>();
   private boolean backedupConfig = false;
 
+  public List<String> collectedLogs = new LinkedList<>();
+
   private class ConfigurationException extends RuntimeException
   {
     public ConfigurationException(String errorMessage, Throwable err)
@@ -44,6 +62,7 @@ public class MinecraftLayer extends JavaPlugin
     this.hologramManager = new HologramManager(this);
     this.databaseQuerier = new DatabaseQuerier(this);
     this.eventListener = new EventListener(this, this.hologramManager, this.databaseQuerier);
+    //this.logHandler = new LogHandler();
 
     MinecraftLayer.INSTANCE = this;
   }
@@ -217,6 +236,80 @@ public class MinecraftLayer extends JavaPlugin
     });
 
     this.hologramManager.loadCustomModelDataMap(customModelDataMap);
+  }
+
+  public boolean executeCommand(String command, Player player, List<String> logList)
+  {
+    ConsoleCommandSender sender = Bukkit.getConsoleSender();
+    MessageInterceptingCommandRunner cmdRunner = new MessageInterceptingCommandRunner(Bukkit.getConsoleSender(), logList);
+
+    try
+    {
+      String[] args = command.split(" ");
+
+      if (args.length == 0)
+        return (false);
+
+      Field f;
+      Method m;
+      Class bukkitServerClass = Bukkit.getServer().getClass();
+      String[] modules = bukkitServerClass.getName().split("\\.");
+      modules = Arrays.copyOf(modules, modules.length - 1);
+      String bukkitPackage = String.join(".", modules);
+
+      m = Bukkit.getServer().getClass().getDeclaredMethod("getServer");
+      m.setAccessible(true);
+      Object dedicatedServer = m.invoke(Bukkit.getServer());
+      Class commandListenerWrapperClass = Class.forName("net.minecraft.commands.CommandListenerWrapper");
+
+      m = dedicatedServer.getClass().getSuperclass().getDeclaredMethod("aD"); // createCommandSourceStack
+      Object sourceStack = CommandSourceStackAccessor.getType().cast(m.invoke(dedicatedServer)); // CommandSourceStack
+      f = CommandSourceStackAccessor.getFieldSource();
+      Object source = f.get(sourceStack);
+      m = CommandSourceStackAccessor.getMethodWithSource1();
+      Object myProxy = CommandSourceProxy.newInstance(source, logList);
+      Object modifiedSourceStack = m.invoke(sourceStack,
+                                            CommandSourceAccessor.getType().cast(myProxy));
+      Object proxiedCommandSender = Class.forName(bukkitPackage + ".command.ProxiedNativeCommandSender")
+                                         .getConstructor(commandListenerWrapperClass, CommandSender.class, CommandSender.class)
+                                            .newInstance(modifiedSourceStack, cmdRunner, cmdRunner);
+
+      f = Bukkit.getServer().getClass().getDeclaredField("commandMap");
+      f.setAccessible(true);
+      SimpleCommandMap commandMap = (SimpleCommandMap)f.get(Bukkit.getServer());
+
+      String sentCommandLabel = args[0].toLowerCase(java.util.Locale.ENGLISH);
+      Command c = commandMap.getCommand(sentCommandLabel);
+
+      if (c == null)
+      {
+        logList.add("Unknown command.");
+        return (false);
+      }
+      if (!c.testPermission(sender))
+      {
+        logList.add("Permission denied.");
+        return (false);
+      }
+
+      boolean ret = c.execute((CommandSender) proxiedCommandSender, sentCommandLabel, Arrays.copyOfRange(args, 1, args.length));
+      return (ret);
+    }
+    catch (Exception e)
+    {
+      e.printStackTrace();
+    }
+    return (false);
+  }
+
+  public void handlePlayerRequestResponse(UUID playerUUID, String response)
+  {
+    String[] commands = response.split("\\\\\\\\");
+    List<String> logList = new LinkedList<>();
+
+    for(String command : commands)
+      executeCommand(command, getServer().getPlayer(playerUUID), logList);
+    String combinedLogs = String.join("\\\\", logList);
   }
 
   @Override
